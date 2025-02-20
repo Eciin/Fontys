@@ -93,9 +93,17 @@ output "vm_ips" {
 resource "local_file" "ansible_inventory" {
   content = <<-EOT
     [Server]
-    ${vsphere_virtual_machine.Server.default_ip_address} ansible_user=student ansible_become_pass=student
+    ${vsphere_virtual_machine.Server.default_ip_address} ansible_user=student ansible_password=student ansible_become_pass=student
     [Desktop]
-    ${vsphere_virtual_machine.Desktop.default_ip_address} ansible_user=student ansible_become_pass=student
+    ${vsphere_virtual_machine.Desktop.default_ip_address} ansible_user=student ansible_password=student ansible_become_pass=student
   EOT
   filename = "inventory.ini"
+}
+
+resource "null_resource" "ansible_provision" {
+  depends_on = [vsphere_virtual_machine.Server, vsphere_virtual_machine.Desktop]  
+
+  provisioner "local-exec" {  
+    command = " sudo ansible-playbook -i inventory.ini playbook.yaml --ask-become-pass"  
+  }
 }

@@ -23,12 +23,12 @@ data "vsphere_network" "network_internet" {
 }
  
 data "vsphere_virtual_machine" "Server" {
-  name          = "_Templates/All Courses/Templ_Ubuntu-Linux_Server_22.04.4"
+  name          = "_Courses/I3-DB01/i416434/Templates/Ubuntu-Server"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_virtual_machine" "Desktop" {
-  name          = "_Templates/All Courses/Templ_Ubuntu-Linux_Desktop_22.04"
+  name          = "_Courses/I3-DB01/i416434/Templates/Ubuntu-Desktop"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
