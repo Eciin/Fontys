@@ -13,7 +13,7 @@ data "vsphere_resource_pool" "pool" {
 }
  
 data "vsphere_datastore" "datastore" {
-  name          = "NIM01-I3-DB"
+  name          = "NIM01-9"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
  
