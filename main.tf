@@ -9,8 +9,8 @@ resource "vsphere_virtual_machine" "Server" {
  
   guest_id = "ubuntu64Guest"
  
-  wait_for_guest_net_timeout = 0
-  wait_for_guest_ip_timeout  = 0
+  wait_for_guest_net_timeout = 120
+  wait_for_guest_ip_timeout  = 120
  
   network_interface {
     network_id   = data.vsphere_network.network_internet.id
@@ -52,8 +52,8 @@ resource "vsphere_virtual_machine" "Desktop" {
  
   guest_id = "ubuntu64Guest"
  
-  wait_for_guest_net_timeout = 0
-  wait_for_guest_ip_timeout  = 0
+  wait_for_guest_net_timeout = 120
+  wait_for_guest_ip_timeout  = 120
  
   network_interface {
     network_id   = data.vsphere_network.network_internet.id
@@ -81,5 +81,29 @@ resource "vsphere_virtual_machine" "Desktop" {
         ipv4_netmask = 0  # Use DHCP
       }
     }
+  }
+}
+output "vm_ips" {
+  value = [
+    vsphere_virtual_machine.Server.default_ip_address,
+    vsphere_virtual_machine.Desktop.default_ip_address
+  ]
+}
+
+resource "local_file" "ansible_inventory" {
+  content = <<-EOT
+    [Server]
+    ${vsphere_virtual_machine.Server.default_ip_address} ansible_user=student ansible_password=student ansible_become_pass=student
+    [Desktop]
+    ${vsphere_virtual_machine.Desktop.default_ip_address} ansible_user=student ansible_password=student ansible_become_pass=student
+  EOT
+  filename = "inventory.ini"
+}
+
+resource "null_resource" "ansible_provision" {
+  depends_on = [vsphere_virtual_machine.Server, vsphere_virtual_machine.Desktop]  
+
+  provisioner "local-exec" {  
+    command = " sudo ansible-playbook -i inventory.ini playbook.yaml --ask-become-pass"  
   }
 }
