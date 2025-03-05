@@ -9,11 +9,11 @@ resource "vsphere_virtual_machine" "Server" {
  
   guest_id = "ubuntu64Guest"
  
-  wait_for_guest_net_timeout = 120
-  wait_for_guest_ip_timeout  = 120
+  wait_for_guest_net_timeout = 180
+  wait_for_guest_ip_timeout  = 180
  
   network_interface {
-    network_id   = data.vsphere_network.network_internet.id
+    network_id   = data.vsphere_network.dynamic_network_internet.id
     adapter_type = "vmxnet3"
   }
  
@@ -34,8 +34,8 @@ resource "vsphere_virtual_machine" "Server" {
         domain    = "local"
       }
       network_interface {
-        ipv4_address = "" # Use DHCP
-        ipv4_netmask = 0  # Use DHCP
+        ipv4_address = ""
+        ipv4_netmask = 0
       }
     }
   }
@@ -52,11 +52,11 @@ resource "vsphere_virtual_machine" "Desktop" {
  
   guest_id = "ubuntu64Guest"
  
-  wait_for_guest_net_timeout = 120
-  wait_for_guest_ip_timeout  = 120
+  wait_for_guest_net_timeout = 180
+  wait_for_guest_ip_timeout  = 180
  
   network_interface {
-    network_id   = data.vsphere_network.network_internet.id
+    network_id   = data.vsphere_network.dynamic_network_internet.id
     adapter_type = "vmxnet3"
   }
  
@@ -83,19 +83,14 @@ resource "vsphere_virtual_machine" "Desktop" {
     }
   }
 }
-output "vm_ips" {
-  value = [
-    vsphere_virtual_machine.Server.default_ip_address,
-    vsphere_virtual_machine.Desktop.default_ip_address
-  ]
-}
 
 resource "local_file" "ansible_inventory" {
+  depends_on = [vsphere_virtual_machine.Server, vsphere_virtual_machine.Desktop]
   content = <<-EOT
     [Server]
-    ${vsphere_virtual_machine.Server.default_ip_address} ansible_user=student ansible_password=student ansible_become_pass=student
+    ${vsphere_virtual_machine.Server.default_ip_address} ansible_user=student ansible_become=yes ansible_become_method=sudo ansible_become_user=root ansible_become_pass=student
     [Desktop]
-    ${vsphere_virtual_machine.Desktop.default_ip_address} ansible_user=student ansible_password=student ansible_become_pass=student
+    ${vsphere_virtual_machine.Desktop.default_ip_address} ansible_user=student ansible_become=yes ansible_become_method=sudo ansible_become_user=root ansible_become_pass=student
   EOT
   filename = "inventory.ini"
 }
@@ -104,6 +99,6 @@ resource "null_resource" "ansible_provision" {
   depends_on = [vsphere_virtual_machine.Server, vsphere_virtual_machine.Desktop]  
 
   provisioner "local-exec" {  
-    command = " sudo ansible-playbook -i inventory.ini playbook.yaml --ask-become-pass"  
+    command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini playbook.yaml --private-key=/home/rmoua/.ssh/id_rsa"  
   }
 }
