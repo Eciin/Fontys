@@ -17,18 +17,22 @@ data "vsphere_datastore" "datastore" {
   datacenter_id = data.vsphere_datacenter.dc.id
 }
  
-data "vsphere_network" "network_internet" {
+data "vsphere_network" "dynamic_network_internet" {
   name          = "0124_Internet-DHCP-192.168.124.0_24"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
  
+data "vsphere_network" "static_network_internet" {
+  name          = "0154_Internet-Static-192.168.154.0_24"
+  datacenter_id = data.vsphere_datacenter.dc.id
+}
 data "vsphere_virtual_machine" "Server" {
-  name          = "_Courses/I3-DB01/i416434/Templates/Ubuntu-Server"
+  name          = "_Courses/I3-DB01/i416434/Templates/Server"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_virtual_machine" "Desktop" {
-  name          = "_Courses/I3-DB01/i416434/Templates/Ubuntu-Desktop"
+  name          = "_Courses/I3-DB01/i416434/Templates/Desktop"
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
