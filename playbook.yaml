@@ -9,3 +9,196 @@
     - name: Upgrade all packages
       apt:
         upgrade: dist
+
+
+
+- name: Install Nagios Core on Ubuntu
+  hosts: Server
+  become: yes
+  vars:
+    nagios_version: "4.5.9"
+    plugins_version: "2.4.12"
+
+  tasks:
+    - name: Ensure firewall is installed
+      apt:
+        name: ufw
+        state: present
+
+    - name: Allow HTTP traffic (port 80)
+      ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+
+    - name: Allow HTTPS traffic (port 443)
+      ufw:
+        rule: allow
+        port: '443'
+        proto: tcp
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - build-essential
+          - libgd-dev
+          - openssl
+          - libssl-dev
+          - apache2
+          - php
+          - libapache2-mod-php
+          - php-gd
+          - unzip
+          - wget
+          - snmp
+          - libnet-snmp-perl
+          - gettext
+          - autoconf
+          - automake
+          - libtool
+        state: present
+
+    - name: Create Nagios user and groups
+      block:
+        - name: Create nagcmd group
+          group:
+            name: nagcmd
+            state: present
+            system: yes
+            
+        - name: Create nagios user
+          user:
+            name: nagios
+            state: present
+            system: yes
+            groups: nagcmd
+            shell: /bin/false
+
+        - name: Add www-data user to nagcmd group
+          user:
+            name: www-data
+            groups: nagcmd
+            append: yes
+
+    - name: Download and install Nagios Core
+      block:
+        - name: Create temporary directory
+          file:
+            path: /tmp/nagios
+            state: directory
+            
+        - name: Download Nagios Core
+          get_url:
+            url: "https://assets.nagios.com/downloads/nagioscore/releases/nagios-{{ nagios_version }}.tar.gz"
+            dest: "/tmp/nagios/nagios-{{ nagios_version }}.tar.gz"
+            
+        - name: Extract Nagios Core
+          unarchive:
+            src: "/tmp/nagios/nagios-{{ nagios_version }}.tar.gz"
+            dest: "/tmp/nagios"
+            remote_src: yes
+            
+        - name: Configure Nagios
+          command:
+            cmd: ./configure --with-httpd-conf=/etc/apache2/conf-available --with-command-group=nagcmd
+            chdir: "/tmp/nagios/nagios-{{ nagios_version }}"
+            
+        - name: Compile Nagios
+          command:
+            cmd: make all
+            chdir: "/tmp/nagios/nagios-{{ nagios_version }}"
+            
+        - name: Install Nagios binaries
+          command:
+            cmd: make install
+            chdir: "/tmp/nagios/nagios-{{ nagios_version }}"
+            
+        - name: Install Nagios command mode
+          command:
+            cmd: make install-commandmode
+            chdir: "/tmp/nagios/nagios-{{ nagios_version }}"
+            
+        - name: Install Nagios configuration
+          command:
+            cmd: make install-config
+            chdir: "/tmp/nagios/nagios-{{ nagios_version }}"
+            
+        - name: Install Nagios init script
+          command:
+            cmd: make install-daemoninit
+            chdir: "/tmp/nagios/nagios-{{ nagios_version }}"
+            
+        - name: Install Nagios web configuration
+          command:
+            cmd: make install-webconf
+            chdir: "/tmp/nagios/nagios-{{ nagios_version }}"
+
+    - name: Create nagiosadmin user for web interface
+      block:
+        - name: Ensure apache2-utils is installed (for htpasswd command)
+          apt:
+            name: apache2-utils
+            state: present
+            
+        - name: Create htpasswd file using command line
+          shell: >
+            htpasswd -bc /usr/local/nagios/etc/htpasswd.users nagiosadmin nagiosadmin && 
+            chown nagios:nagios /usr/local/nagios/etc/htpasswd.users &&
+            chmod 0644 /usr/local/nagios/etc/htpasswd.users
+
+    - name: Download and install Nagios Plugins
+      block:
+        - name: Download Nagios Plugins
+          get_url:
+            url: "https://nagios-plugins.org/download/nagios-plugins-{{ plugins_version }}.tar.gz"
+            dest: "/tmp/nagios/nagios-plugins-{{ plugins_version }}.tar.gz"
+            
+        - name: Extract Nagios Plugins
+          unarchive:
+            src: "/tmp/nagios/nagios-plugins-{{ plugins_version }}.tar.gz"
+            dest: "/tmp/nagios"
+            remote_src: yes
+            
+        - name: Configure Nagios Plugins
+          command:
+            cmd: ./configure --with-nagios-user=nagios --with-nagios-group=nagios
+            chdir: "/tmp/nagios/nagios-plugins-{{ plugins_version }}"
+            
+        - name: Compile Nagios Plugins
+          command:
+            cmd: make
+            chdir: "/tmp/nagios/nagios-plugins-{{ plugins_version }}"
+            
+        - name: Install Nagios Plugins
+          command:
+            cmd: make install
+            chdir: "/tmp/nagios/nagios-plugins-{{ plugins_version }}"
+
+    - name: Enable required Apache modules
+      shell: a2enmod {{ item }}  # Changed from command to shell
+      with_items:
+        - rewrite
+        - cgi
+
+    - name: Enable Nagios configuration in Apache
+      shell: a2enconf nagios  # Changed from command to shell
+      args:
+        creates: /etc/apache2/conf-enabled/nagios.conf
+
+    - name: Restart services
+      service:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      with_items:
+        - apache2
+        - nagios
+
+    - name: Clean up installation files
+      file:
+        path: /tmp/nagios
+        state: absent
