@@ -18,8 +18,6 @@
     plugins_version: "2.4.12"
 
   tasks:
-    
-
     - name: Ensure firewall is installed
       apt:
         name: ufw
