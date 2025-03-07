@@ -10,8 +10,6 @@
       apt:
         upgrade: dist
 
-
-
 - name: Install Nagios Core on Ubuntu
   hosts: Server
   become: yes
@@ -20,6 +18,8 @@
     plugins_version: "2.4.12"
 
   tasks:
+    
+
     - name: Ensure firewall is installed
       apt:
         name: ufw
@@ -179,13 +179,13 @@
             chdir: "/tmp/nagios/nagios-plugins-{{ plugins_version }}"
 
     - name: Enable required Apache modules
-      shell: a2enmod {{ item }}  # Changed from command to shell
+      shell: a2enmod {{ item }}  
       with_items:
         - rewrite
         - cgi
 
     - name: Enable Nagios configuration in Apache
-      shell: a2enconf nagios  # Changed from command to shell
+      shell: a2enconf nagios  
       args:
         creates: /etc/apache2/conf-enabled/nagios.conf
 
@@ -202,3 +202,56 @@
       file:
         path: /tmp/nagios
         state: absent
+
+- name: Gather facts from all hosts
+  hosts: all!Server
+  gather_facts: yes
+  tasks: []  
+
+- name: Add hosts to Nagios monitoring using facts
+  hosts: Server
+  become: yes
+  tasks:
+    - name: Check if Nagios is installed
+      stat:
+        path: /usr/local/nagios/bin/nagios
+      register: nagios_installed
+    - name: Create host configuration directory
+      file:
+        path: /usr/local/nagios/etc/hosts
+        state: directory
+        owner: nagios
+        group: nagios
+        mode: '0755'
+      when: nagios_installed.stat.exists
+    - name: Add host configurations using facts
+      copy:
+        content: |
+          # {{ item }}.cfg - Host definition
+          define host {
+              use                     {% if hostvars[item].ansible_system is defined and hostvars[item].ansible_system == 'Linux' %}linux-server{% else %}generic-host{% endif %}
+              
+              host_name               {{ item }}
+              alias                   {{ hostvars[item].ansible_hostname | default(item) }}
+              address                 {{ hostvars[item].ansible_default_ipv4.address | default(hostvars[item].ansible_host) | default(item) }}
+              hostgroups              linux-servers
+              max_check_attempts      5
+              check_period            24x7
+              notification_interval   30
+              notification_period     24x7
+          }
+        dest: "/usr/local/nagios/etc/hosts/{{ item }}.cfg"
+        owner: nagios
+        group: nagios
+        mode: '0644'
+      loop: "{{ groups['all'] | difference(['Server']) }}"
+    - name: Ensure hosts directory is included in nagios.cfg
+      lineinfile:
+        path: /usr/local/nagios/etc/nagios.cfg
+        line: "cfg_dir=/usr/local/nagios/etc/hosts"
+        state: present
+  handlers:
+    - name: Restart Nagios
+      service:
+       name: nagios
+       state: restarted            
