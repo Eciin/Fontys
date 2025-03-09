@@ -10,6 +10,31 @@
       apt:
         upgrade: dist
 
+- name: Allow Webtraffic
+  hosts: Server:Webserver
+  become: yes
+  tasks:
+    - name: Ensure firewall is installed
+      apt:
+          name: ufw
+          state: present
+
+    - name: Allow HTTP traffic (port 80)
+      ufw:
+          rule: allow
+          port: '80'
+          proto: tcp
+
+    - name: Allow HTTPS traffic (port 443)
+      ufw:
+          rule: allow
+          port: '443'
+          proto: tcp
+    - name: Update apt cache
+      apt:
+          update_cache: yes
+          cache_valid_time: 3600
+
 - name: Install Nagios Core on Ubuntu
   hosts: Server
   become: yes
@@ -18,27 +43,6 @@
     plugins_version: "2.4.12"
 
   tasks:
-    - name: Ensure firewall is installed
-      apt:
-        name: ufw
-        state: present
-
-    - name: Allow HTTP traffic (port 80)
-      ufw:
-        rule: allow
-        port: '80'
-        proto: tcp
-
-    - name: Allow HTTPS traffic (port 443)
-      ufw:
-        rule: allow
-        port: '443'
-        proto: tcp
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-
     - name: Install required packages
       apt:
         name:
@@ -254,3 +258,55 @@
       service:
        name: nagios
        state: restarted            
+
+- name: Configure Apache2 Webserver with HTTPS
+  hosts: Webserver
+  become: yes
+  
+  tasks:
+    - name: Install Apache2 and SSL packages
+      apt:
+        name:
+          - apache2
+          - openssl
+          - ssl-cert
+        state: present
+        update_cache: yes
+      
+    - name: Enable Apache SSL modules
+      command: a2enmod {{ item }}
+      with_items:
+        - ssl
+        - rewrite
+      notify: Restart Apache2
+    
+    - name: Create SSL certificate directory
+      file:
+        path: /etc/ssl/private
+        state: directory
+        mode: '0700'
+    
+    - name: Generate self-signed certificate
+      command: >
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048
+        -keyout /etc/ssl/private/apache-selfsigned.key
+        -out /etc/ssl/certs/apache-selfsigned.crt
+        -subj "/C=US/ST=State/L=City/O=Organization/CN=example.com"
+      args:
+        creates: /etc/ssl/certs/apache-selfsigned.crt
+    
+    - name: Enable SSL site configuration
+      command: a2ensite default-ssl
+      notify: Restart Apache2
+    
+    - name: Enable and start Apache2 service
+      service:
+        name: apache2
+        state: started
+        enabled: yes
+  
+  handlers:
+    - name: Restart Apache2
+      service:
+        name: apache2
+        state: restarted
