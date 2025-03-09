@@ -248,6 +248,7 @@
         path: /usr/local/nagios/etc/nagios.cfg
         line: "cfg_dir=/usr/local/nagios/etc/hosts"
         state: present
+      notify: Restart Nagios
   handlers:
     - name: Restart Nagios
       service:

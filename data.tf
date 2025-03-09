@@ -36,4 +36,8 @@ data "vsphere_virtual_machine" "Desktop" {
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
+data "vsphere_virtual_machine" "Webserver" {
+  name          = "_Courses/I3-DB01/i416434/Templates/Server"
+  datacenter_id = data.vsphere_datacenter.dc.id
+}
 
