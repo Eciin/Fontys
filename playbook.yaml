@@ -10,30 +10,69 @@
       apt:
         upgrade: dist
 
-- name: Allow Webtraffic
-  hosts: Server:Webserver
+- name: Setup firewall rules
+  hosts: all
   become: yes
   tasks:
     - name: Ensure firewall is installed
       apt:
-          name: ufw
-          state: present
-
+        name: ufw
+        state: present
+        
+    - name: Enable UFW if not already enabled
+      shell: 'yes | ufw enable'
+      failed_when: false
+      
+    # Basic web traffic
     - name: Allow HTTP traffic (port 80)
       ufw:
-          rule: allow
-          port: '80'
-          proto: tcp
+        rule: allow
+        port: '80'
+        proto: tcp
 
     - name: Allow HTTPS traffic (port 443)
       ufw:
-          rule: allow
-          port: '443'
-          proto: tcp
+        rule: allow
+        port: '443'
+        proto: tcp
+          
+    - name: Allow Wazuh agent communication (port 1514/udp)
+      ufw:
+        rule: allow
+        port: '1514'
+        proto: udp
+
+    - name: Allow Wazuh registration service (port 1515/tcp)
+      ufw:
+        rule: allow
+        port: '1515'
+        proto: tcp
+    
+    - name: Allow Wazuh API (port 55000)
+      ufw:
+        rule: allow
+        port: '55000'
+        proto: tcp
+      when: inventory_hostname in groups['Wazuh-server']
+
+    - name: Allow Wazuh indexer (port 9200)
+      ufw:
+        rule: allow
+        port: '9200'
+        proto: tcp
+      when: inventory_hostname in groups['Wazuh-server']
+
+    - name: Allow Wazuh dashboard (port 5601)
+      ufw:
+        rule: allow
+        port: '5601'
+        proto: tcp
+      when: inventory_hostname in groups['Wazuh-server']
+          
     - name: Update apt cache
       apt:
-          update_cache: yes
-          cache_valid_time: 3600
+        update_cache: yes
+        cache_valid_time: 3600
 
 - name: Install Nagios Core on Ubuntu
   hosts: Server
@@ -310,3 +349,148 @@
       service:
         name: apache2
         state: restarted
+
+- name: Install complete Wazuh stack
+  hosts: Wazuh-server
+  become: yes
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - apt-transport-https
+          - gnupg
+          - lsb-release
+          - jq
+        state: present
+        update_cache: yes
+
+    - name: Download Wazuh installation script
+      get_url:
+        url: https://packages.wazuh.com/4.4/wazuh-install.sh
+        dest: /tmp/wazuh-install.sh
+        mode: '0700'
+        force: yes
+        
+    - name: Copy Wazuh configuration to default location
+      copy:
+        dest: /tmp/config.yml
+        content: |
+          nodes:
+            # Wazuh indexer nodes
+            indexer:
+              - name: wazuh-indexer
+                ip: {{ ansible_default_ipv4.address }}
+                roles:
+                  - indexer
+            # Wazuh server nodes
+            server:
+              - name: wazuh-server
+                ip: {{ ansible_default_ipv4.address }}
+            # Wazuh dashboard nodes
+            dashboard:
+              - name: wazuh-dashboard
+                ip: {{ ansible_default_ipv4.address }}
+            
+    - name: Generate Wazuh installation files
+      shell: '/tmp/wazuh-install.sh -g'
+      register: generate_config_result
+      
+    - name: Install complete Wazuh stack (All-in-one)
+      shell: '/tmp/wazuh-install.sh -a'
+      register: all_in_one_install_result
+      
+    - name: Wait for Wazuh components to start
+      pause:
+        seconds: 60
+
+- name: Install Wazuh Agent prerequisites
+  hosts: all:!Wazuh-server
+  become: yes
+  gather_facts: yes
+  vars:
+    wazuh_manager_ip: "{{ hostvars[groups['Wazuh-server'][0]]['ansible_default_ipv4']['address'] }}"
+  tasks:
+    - name: Install required packages
+      package:
+        name: 
+          - curl
+          - apt-transport-https
+          - lsb-release
+          - gnupg2
+        state: present
+
+    - name: Add Wazuh repository GPG key
+      shell: 'curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg'
+      args:
+        creates: /usr/share/keyrings/wazuh.gpg
+        
+    - name: Add Wazuh repository
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main"
+        state: present
+        filename: wazuh
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        
+    - name: Install Wazuh agent
+      package:
+        name: wazuh-agent
+        state: present
+
+- name: Configure Wazuh agents
+  hosts: all:!Wazuh-server
+  become: yes
+  vars:
+    wazuh_manager_ip: "{{ hostvars[groups['Wazuh-server'][0]]['ansible_default_ipv4']['address'] }}"
+  tasks:
+    - name: Configure Wazuh agent
+      lineinfile:
+        path: /var/ossec/etc/ossec.conf
+        regexp: '<address>.*</address>'
+        line: "<address>{{ wazuh_manager_ip }}</address>"
+        backrefs: yes
+    
+    - name: Start Wazuh authentication daemon on server
+      delegate_to: "{{ groups['Wazuh-server'][0] }}"
+      become: yes
+      shell: |
+        /var/ossec/bin/wazuh-authd -p 1515 -a &
+      async: 3600 
+      poll: 0      
+      
+    - name: Wait for authentication daemon to start
+      pause:
+        seconds: 5
+    
+    - name: Register agent with server using agent-auth
+      become: yes
+      shell: |
+        /var/ossec/bin/agent-auth -m {{ wazuh_manager_ip }} -A {{ inventory_hostname }}
+      register: agent_auth_result
+      failed_when: false
+
+- name: Start Wazuh agents
+  hosts: all:!Wazuh-server
+  become: yes
+  tasks:
+    - name: Enable and start Wazuh Agent service
+      systemd:
+        name: wazuh-agent
+        enabled: yes
+        state: started
+        
+    - name: Wait for agent to initialize
+      pause:
+        seconds: 15
+
+- name: Finalize installation
+  hosts: Wazuh-server
+  become: yes
+  tasks:
+    - name: Stop Wazuh authentication daemon
+      shell: 'pkill wazuh-authd || true'
+      failed_when: false
+    

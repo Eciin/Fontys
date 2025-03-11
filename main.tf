@@ -189,7 +189,7 @@ resource "local_file" "ansible_inventory" {
 
     ${vsphere_virtual_machine.Desktop.default_ip_address} ansible_user=student ansible_become=yes ansible_become_method=sudo ansible_become_user=root ansible_become_pass=student
     
-    [Wazuh]
+    [Wazuh-server]
 
     ${vsphere_virtual_machine.Wazuh.default_ip_address} ansible_user=student ansible_become=yes ansible_become_method=sudo ansible_become_user=root ansible_become_pass=student
   EOT
