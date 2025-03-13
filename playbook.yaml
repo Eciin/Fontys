@@ -36,11 +36,11 @@
         port: '443'
         proto: tcp
           
-    - name: Allow Wazuh agent communication (port 1514/udp)
+    - name: Allow Wazuh agent communication (port 1514/tcp)
       ufw:
         rule: allow
         port: '1514'
-        proto: udp
+        proto: tcp
 
     - name: Allow Wazuh registration service (port 1515/tcp)
       ufw:
@@ -367,7 +367,7 @@
 
     - name: Download Wazuh installation script
       get_url:
-        url: https://packages.wazuh.com/4.4/wazuh-install.sh
+        url: https://packages.wazuh.com/4.11/wazuh-install.sh
         dest: /tmp/wazuh-install.sh
         mode: '0700'
         force: yes
@@ -457,13 +457,13 @@
       delegate_to: "{{ groups['Wazuh-server'][0] }}"
       become: yes
       shell: |
-        /var/ossec/bin/wazuh-authd -p 1515 -a &
+        /var/ossec/bin/wazuh-authd -p 1515 -f &
       async: 3600 
       poll: 0      
       
     - name: Wait for authentication daemon to start
       pause:
-        seconds: 5
+        seconds: 10
     
     - name: Register agent with server using agent-auth
       become: yes
@@ -471,6 +471,25 @@
         /var/ossec/bin/agent-auth -m {{ wazuh_manager_ip }} -A {{ inventory_hostname }}
       register: agent_auth_result
       failed_when: false
+      
+    - name: Display agent registration output
+      debug:
+        var: agent_auth_result.stdout_lines
+      
+    - name: Ensure Wazuh agent configuration is correct
+      lineinfile:
+        path: /var/ossec/etc/ossec.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backrefs: yes
+      with_items:
+        - { regexp: '<server-ip>.*</server-ip>', line: '<server-ip>{{ wazuh_manager_ip }}</server-ip>' }
+        - { regexp: '<server-hostname>.*</server-hostname>', line: '<server-hostname>{{ wazuh_manager_ip }}</server-hostname>' }
+      
+    - name: Restart Wazuh agent after registration
+      systemd:
+        name: wazuh-agent
+        state: restarted
 
 - name: Start Wazuh agents
   hosts: all:!Wazuh-server
@@ -484,13 +503,28 @@
         
     - name: Wait for agent to initialize
       pause:
-        seconds: 15
+        seconds: 30
+        
+    - name: Check Wazuh agent status
+      shell: /var/ossec/bin/agent_control -l
+      register: agent_status
+      delegate_to: "{{ groups['Wazuh-server'][0] }}"
+      become: yes
+      
+    - name: Display agent status
+      debug:
+        var: agent_status.stdout_lines
+
+# Removed the "Kill Auth daemon" task to keep it running
 
 - name: Finalize installation
   hosts: Wazuh-server
   become: yes
   tasks:
-    - name: Stop Wazuh authentication daemon
-      shell: 'pkill wazuh-authd || true'
-      failed_when: false
-    
+    - name: Verify all agents are registered
+      shell: /var/ossec/bin/agent_control -l
+      register: final_agent_status
+      
+    - name: Display final agent status
+      debug:
+        var: final_agent_status.stdout_lines
