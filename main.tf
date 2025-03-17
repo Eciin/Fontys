@@ -174,8 +174,17 @@ resource "vsphere_virtual_machine" "Wazuh" {
     }
   }
 }
+
+resource "null_resource" "wait_for_vms" {
+  depends_on = [vsphere_virtual_machine.Server, vsphere_virtual_machine.Desktop, vsphere_virtual_machine.Webserver, vsphere_virtual_machine.Wazuh]
+
+   provisioner "local-exec" {
+    command = "sleep 90"
+  }
+}
+
 resource "local_file" "ansible_inventory" {
-  depends_on = [vsphere_virtual_machine.Server, vsphere_virtual_machine.Desktop]  
+  depends_on = [null_resource.wait_for_vms]  
   content = <<-EOT
     [Server]
 
@@ -197,7 +206,7 @@ resource "local_file" "ansible_inventory" {
 }
 
 resource "null_resource" "ansible_provision" {
-  depends_on = [local_file.ansible_inventory]  
+  depends_on = [null_resource.wait_for_vms]  
 
   provisioner "local-exec" {  
    command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini playbook.yaml --private-key=/home/rmoua/.ssh/id_rsa"   

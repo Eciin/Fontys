@@ -515,8 +515,6 @@
       debug:
         var: agent_status.stdout_lines
 
-# Removed the "Kill Auth daemon" task to keep it running
-
 - name: Finalize installation
   hosts: Wazuh-server
   become: yes
